@@ -1,0 +1,74 @@
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: paysecure-mysql
+    environment:
+      MYSQL_DATABASE: paysecure_db
+      MYSQL_USER: paysecure
+      MYSQL_PASSWORD: paysecure123
+      MYSQL_ROOT_PASSWORD: root123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - paysecure-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+      interval: 5s
+
+  # Backend Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: paysecure-backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/paysecure_db
+      SPRING_DATASOURCE_USERNAME: paysecure
+      SPRING_DATASOURCE_PASSWORD: paysecure123
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - paysecure-network
+    restart: unless-stopped
+
+  # AI Service
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: paysecure-ai
+    ports:
+      - "8001:8001"
+    networks:
+      - paysecure-network
+    restart: unless-stopped
+
+  # Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: paysecure-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+      - ai-service
+    networks:
+      - paysecure-network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+
+networks:
+  paysecure-network:
+    driver: bridge
