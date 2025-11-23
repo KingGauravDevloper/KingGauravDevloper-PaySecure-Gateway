@@ -1,74 +1,143 @@
+version: '3.8'
+
+# This network ensures all services can communicate using the service name as the hostname.
+networks:
+  paysecure-network:
+    driver: bridge
+
 services:
-  # MySQL Database
-  mysql:
+  # ------------------------------------------------------------
+  # INFRASTRUCTURE SERVICES 
+  # ------------------------------------------------------------
+  mysql-db:
     image: mysql:8.0
-    container_name: paysecure-mysql
+    container_name: mysql-db
     environment:
-      MYSQL_DATABASE: paysecure_db
-      MYSQL_USER: paysecure
-      MYSQL_PASSWORD: paysecure123
-      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_ROOT_PASSWORD: root
+      # Define all database schemas needed by all services
+      MYSQL_DATABASE: authdb,paysecure_transaction_db,bank_adapter_db,paysecure_db
     ports:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
       - paysecure-network
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      timeout: 20s
-      retries: 10
-      interval: 5s
-
-  # Backend Service
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: paysecure-backend
+  
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/paysecure_db
-      SPRING_DATASOURCE_USERNAME: paysecure
-      SPRING_DATASOURCE_PASSWORD: paysecure123
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
     ports:
-      - "8080:8080"
-    depends_on:
-      mysql:
-        condition: service_healthy
+      - "2181:2181"
     networks:
       - paysecure-network
-    restart: unless-stopped
 
-  # AI Service
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181 # Internal service name
+      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+    ports:
+      - "9093:9093" # Host machine access to Kafka
+    depends_on:
+      - zookeeper
+    networks:
+      - paysecure-network
+
+  # ------------------------------------------------------------
+  # APPLICATION SERVICES (Java builds use multi-stage Dockerfiles)
+  # ------------------------------------------------------------
+  auth-service:
+    build:
+      context: ./auth-service 
+    container_name: auth-service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-db:3306/authdb?createDatabaseIfNotExist=true
+      JWT_SECRET: WTI5dFltbHVZWFJwYjI1a2IybHVaMjFsWVd4bGVHTnBkR1Z0Wlc1MGJXRmtaWEJ5YjJKc1pXMXlaV05sYVhabGFXND0=
+    depends_on:
+      - mysql-db
+    networks:
+      - paysecure-network
+
+  transaction-service:
+    build:
+      context: ./transaction-service
+    container_name: transaction-service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-db:3306/paysecure_transaction_db?createDatabaseIfNotExist=true
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092 # Kafka internal service name
+      JWT_SECRET: WTI5dFltbHVZWFJwYjI1a2IybHVaMjFsWVd4bGVHTnBkR1Z0Wlc1MGJXRmtaWEJ5YjJKc1pXMXlaV05sYVhabGFXND0=
+    depends_on:
+      - mysql-db
+      - kafka
+    networks:
+      - paysecure-network
+
+  bank-adapter-service:
+    build:
+      context: ./bank-adapter-service
+    container_name: bank-adapter-service
+    ports:
+      - "9002:9002"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-db:3306/bank_adapter_db?createDatabaseIfNotExist=true
+    depends_on:
+      - mysql-db
+    networks:
+      - paysecure-network
+
   ai-service:
     build:
       context: ./ai-service
-      dockerfile: Dockerfile
-    container_name: paysecure-ai
+    container_name: ai-service
     ports:
       - "8001:8001"
     networks:
       - paysecure-network
-    restart: unless-stopped
 
-  # Frontend Service
-  frontend:
+  payment-orchestration-service:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: paysecure-frontend
+      context: ./payment-orchestration-service
+    container_name: orchestration-service
     ports:
-      - "3000:3000"
+      - "8084:8084"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-db:3306/paysecure_db?createDatabaseIfNotExist=true
+      SERVICES_FRAUD_DETECTION_URL: http://ai-service:8001/api/v1/fraud/check
+      SERVICES_BANK_ADAPTER_URL: http://bank-adapter-service:9002/api/payments
+      JWT_SECRET: WTI5dFltbHVZWFJwYjI1a2IybHVaMjFsWVd4bGVHTnBkR1Z0Wlc1MGJXRmtaWEJ5YjJKc1pXMXlaV05sYVhabGFXND0=
     depends_on:
-      - backend
+      - mysql-db
       - ai-service
+      - bank-adapter-service
     networks:
       - paysecure-network
-    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "8080:8080" # The public entry point
+    environment:
+      JWT_SECRET: WTI5dFltbHVZWFJwYjI1a2IybHVaMjFsWVd4bGVHTnBkR1Z0Wlc1MGJXRmtaWEJ5YjJKc1pXMXlaV05sYVhabGFXND0=
+    depends_on:
+      - auth-service
+      - payment-orchestration-service
+      - transaction-service
+    networks:
+      - paysecure-network
 
 volumes:
-  mysql_data:
-
-networks:
-  paysecure-network:
-    driver: bridge
+  mysql_data: {}

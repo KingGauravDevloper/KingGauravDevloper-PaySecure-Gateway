@@ -1,14 +1,15 @@
+server:
+  port: 8081
+
 spring:
   application:
-    name: Auth Service
-
+    name: auth-service
   datasource:
-    url: jdbc:mysql://localhost:3306/authdb
-    username: auth_user
-    password: paysecure123
+    # Added ?createDatabaseIfNotExist=true to handle first-run scenarios
+    url: jdbc:mysql://localhost:3306/authdb?createDatabaseIfNotExist=true
+    username: root
+    password: root   # <--- Updated to match your Docker settings
     driver-class-name: com.mysql.cj.jdbc.Driver
-
-
   jpa:
     hibernate:
       ddl-auto: update
@@ -17,10 +18,8 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
 
-server:
-  port: 8081
-
+# ⚠️ INDENTATION IS CRITICAL HERE
 jwt:
   jwt:
-  secret: "WTI5dFltbHVZWFJwYjI1a2IybHVaMjFsWVd4bGVHTnBkR1Z0Wlc1MGJXRmtaWEJ5YjJKc1pXMXlaV05sYVhabGFXND0="
-  expiration: 86400000  # 24 hours in ms
+    secret: "WTI5dFltbHVZWFJwYjI1a2IybHVaMjFsWVd4bGVHTnBkR1Z0Wlc1MGJXRmtaWEJ5YjJKc1pXMXlaV05sYVhabGFXND0="
+    expiration: 86400000  # 24 hours in ms

@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -17,37 +18,57 @@ import java.util.ArrayList;
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
-    
+
     private final JwtUtil jwtUtil;
-    
+
     @Override
-    protected void doFilterInternal(HttpServletRequest request, 
-                                    HttpServletResponse response, 
-                                    FilterChain filterChain) throws ServletException, IOException {
-        
-        final String authorizationHeader = request.getHeader("Authorization");
-        
+    protected void doFilterInternal(
+            @NonNull HttpServletRequest request,
+            @NonNull HttpServletResponse response,
+            @NonNull FilterChain filterChain
+    ) throws ServletException, IOException {
+
+        final String authHeader = request.getHeader("Authorization");
         String username = null;
         String jwt = null;
-        
-        if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
-            jwt = authorizationHeader.substring(7);
+
+        // 🔍 DEBUG LOG 1
+        System.out.println("🔍 [Filter] Checking Request: " + request.getRequestURI());
+
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            jwt = authHeader.substring(7);
             try {
                 username = jwtUtil.extractUsername(jwt);
+                System.out.println("✅ [Filter] Username extracted: " + username);
             } catch (Exception e) {
-                logger.error("JWT Token extraction failed", e);
+                // 🔍 DEBUG LOG 2
+                System.out.println("❌ [Filter] Error extracting username: " + e.getMessage());
+                e.printStackTrace(); // This will print the full error cause
             }
+        } else {
+            System.out.println("⚠️ [Filter] No Bearer Token found in header");
         }
-        
+
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            // 🔍 DEBUG LOG 3
+            System.out.println("🔍 [Filter] Validating token...");
+            
             if (jwtUtil.validateToken(jwt)) {
-                UsernamePasswordAuthenticationToken authenticationToken = 
-                        new UsernamePasswordAuthenticationToken(username, null, new ArrayList<>());
-                authenticationToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authenticationToken);
+                System.out.println("✅ [Filter] Token is VALID. Setting SecurityContext.");
+                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                        username,
+                        null,
+                        new ArrayList<>()
+                );
+                authToken.setDetails(
+                        new WebAuthenticationDetailsSource().buildDetails(request)
+                );
+                SecurityContextHolder.getContext().setAuthentication(authToken);
+            } else {
+                System.out.println("❌ [Filter] Token Validation FAILED.");
             }
         }
-        
+
         filterChain.doFilter(request, response);
     }
 }
