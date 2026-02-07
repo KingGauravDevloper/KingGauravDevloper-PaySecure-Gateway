@@ -828,6 +828,6 @@ For questions or support:
 
 ---
 
-**Made with ❤️ by [Your Name]**
+Made with ❤️ by King Gaurav
 
 Last Updated: November 13, 2025
